@@ -1,5 +1,6 @@
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 #include <unistd.h>
 #include <sys/types.h>
 #include <sys/stat.h>
@@ -34,6 +35,7 @@ int Ci;
 int rcvd_replies = 0;
 int taken = 0;
 int rides = 0;
+int deferred_replies[NUM_VISITORS];
 
 void get_pipe_name(char *buffer, int from, int to) {
     snprintf(buffer, 50, "/tmp/pipe_%d_%d", from, to);
@@ -124,18 +126,24 @@ void *visitor_thread(void *args) {
                     if(msg.type == MSG_REQUEST) {
 
                         enqueue(&pq, &msg);
-                        
-                        if(findByProcessNum(&pq, data->id) == -1 || 
-                           msg.Tm < Ci) {
-                            Message reply;
-                            reply.type = MSG_REPLY;
-                            reply.sender_id = data->id;
-                            reply.Tm = Ci;
-                            reply.wants_ride = 0;
-                            
-                            send_message(data->id, msg.sender_id, &reply);
-                            printf("Posjetitelj %d šalje odgovor posjetitelju %d\n", 
-                                   data->id, msg.sender_id);
+
+                        if (taken == 1) {
+                            deferred_replies[msg.sender_id] = 1;
+                            printf("Posjetitelj %d je u kritičnoj sekciji — odgađa odgovor za posjetitelja %d\n",
+                                data->id, msg.sender_id);
+                        } else {
+                            if(findByProcessNum(&pq, data->id) == -1 || 
+                            msg.Tm < Ci) {
+                                Message reply;
+                                reply.type = MSG_REPLY;
+                                reply.sender_id = data->id;
+                                reply.Tm = Ci;
+                                reply.wants_ride = 0;
+                                
+                                send_message(data->id, msg.sender_id, &reply);
+                                printf("Posjetitelj %d šalje odgovor posjetitelju %d\n", 
+                                    data->id, msg.sender_id);
+                            }
                         }
                     }
                     else if(msg.type == MSG_REPLY) {
@@ -176,6 +184,20 @@ void *visitor_thread(void *args) {
                 send_message(data->id, CAROUSEL_ID, &confirm);
                 taken = 0;
                 rides++;
+
+                for (int i = 0; i < NUM_VISITORS; i++) {
+                    if (deferred_replies[i]) {
+                        Message reply;
+                        reply.type = MSG_REPLY;
+                        reply.sender_id = data->id;
+                        reply.Tm = Ci;
+                        reply.wants_ride = 0;
+                        send_message(data->id, i, &reply);
+                        printf("Posjetitelj %d sada šalje odgođeni odgovor posjetitelju %d\n",
+                            data->id, i);
+                        deferred_replies[i] = 0;
+                    }
+                }
             }
         }
 
@@ -183,17 +205,6 @@ void *visitor_thread(void *args) {
     }
     return NULL;
 }
-
-void *carousel_thread(void *args){
-
-}
-
-//typedef struct {
-//    int type;           
-//    int sender_id;      
-//    int Tm;      
-//    int wants_ride;     
-//} Message;
 
 void visitor_process(int id) { 
     Ci = rand() %10;
@@ -243,6 +254,18 @@ void visitor_process(int id) {
     printf("Posjetitelj %d završio.\n", id);
     exit(0);
 }
+
+void *carousel_thread(void *args){
+
+    return NULL;
+}
+
+//typedef struct {
+//    int type;           
+//    int sender_id;      
+//    int Tm;      
+//    int wants_ride;     
+//} Message;
 
 void carousel_process() {
     int active_visitors = NUM_VISITORS;
