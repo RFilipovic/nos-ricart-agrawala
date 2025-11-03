@@ -136,7 +136,7 @@ void *visitor_thread(void *args) {
 
                         if (taken == 1) {
                             // Zauzet sam (na vožnji), odgodi odgovor
-                            deferred_replies[msg.sender_id] = 1;
+                            deferred_replies[msg.sender_id] = msg.Tm;
                             printf("Posjetitelj %d: (Stanje: Na vožnji) Odgađam odgovor za %d\n", data->id, msg.sender_id);
                         } else if (my_req_index == -1) {
                             // Ne želim u K.O., odgovori odmah
@@ -151,7 +151,7 @@ void *visitor_thread(void *args) {
                                 send_message(data->id, msg.sender_id, &reply);
                             } else {
                                 // Moj zahtjev ima prioritet, odgodi
-                                deferred_replies[msg.sender_id] = 1;
+                                deferred_replies[msg.sender_id] = msg.Tm;
                                 printf("Posjetitelj %d: (Stanje: Moj Tm niži) Odgađam odgovor za %d\n", data->id, msg.sender_id);
                             }
                         }
@@ -195,9 +195,8 @@ void *visitor_thread(void *args) {
                     // Pošalji sve odgovore odgođene *dok si bio na vožnji*
                     printf("Posjetitelj %d: Sišao, šaljem odgođene R-A odgovore...\n", data->id);
                     for (i = 0; i < NUM_VISITORS; i++) { 
-                        if (deferred_replies[i]) {
-                            Ci++; 
-                            Message reply = {MSG_REPLY, data->id, Ci, 0};
+                        if (deferred_replies[i] > 0) {
+                            Message reply = {MSG_REPLY, data->id, deferred_replies[i], 0};
                             send_message(data->id, i, &reply);
                             deferred_replies[i] = 0;
                         }
@@ -296,9 +295,9 @@ void visitor_process(int id) {
         }
         // Pošalji sve odgovore odgođene zbog R-A prioriteta
         for (int i = 0; i < NUM_VISITORS; i++) {
-            if (deferred_replies[i]) {
-                Ci++; 
-                Message reply = {MSG_REPLY, id, Ci, 0};
+            if (deferred_replies[i] > 0) {
+
+                Message reply = {MSG_REPLY, id, deferred_replies[i], 0};
                 send_message(id, i, &reply); 
                 deferred_replies[i] = 0;
             }

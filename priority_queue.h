@@ -9,7 +9,7 @@ typedef struct {
     int type;
     int sender_id;
     int Tm;
-    int wants_ride; // Iako se ne koristi u R-A, ostavljamo ga radi kompatibilnosti
+    int wants_ride; // Iako se ne koristi u R-A, ostavio sam ga radi kompatibilnosti
 } Message;
 
 typedef struct {
