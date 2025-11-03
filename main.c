@@ -9,15 +9,14 @@
 #include <errno.h>
 #include <pthread.h>
 #include <string.h> 
-#include <signal.h> // Za kill()
+#include <signal.h>
 
 #include "priority_queue.h"
 
-// --- Definicije ---
 #define NUM_VISITORS 12
 #define RIDES_PER_VISITOR 2
 #define CAROUSEL_SEATS 4
-#define CAROUSEL_ID 12 // ID vrtuljka (mora biti različit od 0-11)
+#define CAROUSEL_ID 12
 
 #define MSG_REQUEST 1 // R-A: Tražim K.O.
 #define MSG_REPLY 2   // R-A: Odgovor na zahtjev
@@ -28,7 +27,6 @@
 
 #define MAX(a, b) ((a) > (b) ? (a) : (b))
 
-// --- Globalne varijable (po procesu) ---
 pthread_t thread;
 PriorityQueue pq;
 
@@ -43,8 +41,6 @@ int rcvd_replies = 0;
 int taken = 0; // 0 = nije na vrtuljku, 1 = na vrtuljku
 int rides = 0;
 int deferred_replies[NUM_VISITORS];
-
-// --- Upravljanje cjevovodima ---
 
 void get_pipe_name(char *buffer, int from, int to) {
     snprintf(buffer, 50, "/tmp/pipe_%d_%d", from, to);
@@ -73,8 +69,6 @@ void create_all_pipes() {
         }
     }
 }
-
-// --- Komunikacija i ispis ---
 
 const char* msg_type_to_string(int type) {
     switch(type) {
@@ -114,7 +108,6 @@ void send_message(int from, int to, Message *msg) {
     close(fd);
 }
 
-// --- Dretva posjetitelja (Slušač) ---
 // Ova dretva se vrti u pozadini i samo prima poruke
 void *visitor_thread(void *args) {
     ThreadData *data = (ThreadData*)args;
@@ -129,7 +122,7 @@ void *visitor_thread(void *args) {
                 
                 ssize_t bytes_read = read(data->read_fds[i], &msg, sizeof(Message));
                 
-                if (bytes_read > 0) { // Imamo poruku!
+                if (bytes_read > 0) {
                     Ci = MAX(Ci, msg.Tm) + 1; // Pravilo globalnog sata
                     
                     // Ispis svake primljene poruke (zahtjev zadatka)
@@ -147,7 +140,7 @@ void *visitor_thread(void *args) {
                             printf("Posjetitelj %d: (Stanje: Na vožnji) Odgađam odgovor za %d\n", data->id, msg.sender_id);
                         } else if (my_req_index == -1) {
                             // Ne želim u K.O., odgovori odmah
-                            Message reply = {MSG_REPLY, data->id, Ci, 0};
+                            Message reply = {MSG_REPLY, data->id, msg.Tm, 0};
                             send_message(data->id, msg.sender_id, &reply);
                         } else {
                             // I ja želim u K.O., provjeri prioritete
@@ -164,14 +157,11 @@ void *visitor_thread(void *args) {
                         }
                     }
                     else if(msg.type == MSG_REPLY) {
-                        // Pravilo 3. Ricart-Agrawala
                         rcvd_replies++;
                         printf("Posjetitelj %-2d: (Brojač odgovora: %d/%d)\n", 
                                data->id, rcvd_replies, NUM_VISITORS - 1);
                     }
                 } else if (bytes_read == 0) { 
-                    // POPRAVAK: Rješavanje pipe deadlocka
-                    // Pisac je zatvorio cijev (nakon send_message). Zatvori i odmah ponovno otvori.
                     close(data->read_fds[i]);
                     get_pipe_name(pipe_name, i, data->id); 
                     data->read_fds[i] = open(pipe_name, O_RDONLY | O_NONBLOCK); 
@@ -179,7 +169,7 @@ void *visitor_thread(void *args) {
                         perror("visitor_thread: re-open pipe failed");
                     }
                 } else if (errno != EAGAIN) { 
-                    // EAGAIN je normalno (znači "nema podataka"), sve ostalo je greška
+                    // Nema podataka.
                 }
             }
         }
@@ -201,8 +191,7 @@ void *visitor_thread(void *args) {
                     printf("Posjetitelj %d: Ustao.\n", data->id); // Pseudokod: "ispiši Sišao..."
                     taken = 0; // Javi glavnoj petlji
                     rides++;   
-                    
-                    // POPRAVAK: Rješavanje logičkog deadlocka
+
                     // Pošalji sve odgovore odgođene *dok si bio na vožnji*
                     printf("Posjetitelj %d: Sišao, šaljem odgođene R-A odgovore...\n", data->id);
                     for (i = 0; i < NUM_VISITORS; i++) { 
@@ -215,7 +204,6 @@ void *visitor_thread(void *args) {
                     }
                 }
             } else if (bytes_read == 0) {
-                // POPRAVAK: Rješavanje pipe deadlocka
                 close(data->carousel_read_fd);
                 get_pipe_name(pipe_name, CAROUSEL_ID, data->id); 
                 data->carousel_read_fd = open(pipe_name, O_RDONLY | O_NONBLOCK);
@@ -229,7 +217,6 @@ void *visitor_thread(void *args) {
     return NULL;
 }
 
-// --- Proces posjetitelja (Glavna logika) ---
 // Ova funkcija implementira pseudokod "Dretva posjetitelj(K)"
 void visitor_process(int id) { 
     srand(time(NULL) ^ getpid()); 
@@ -265,16 +252,14 @@ void visitor_process(int id) {
         perror("Error creating thread"); exit(1);
     }
     
-    // --- Glavna petlja (ponavljaj 2 puta) ---
+    // Glavna petlja (ponavljaj 2 puta)
     while (rides < RIDES_PER_VISITOR) {
         // Pseudokod: spavaj X milisekundi
         usleep((rand() % 1900 + 100) * 1000);
 
-        // --- ULAZAK U KRITIČNI ODSJEČAK (Ricart-Agrawala) ---
         // (K.O. je samo slanje poruke vrtuljku)
         
         printf("Posjetitelj %d: Želi na vožnju (vožnja %d/%d)\n", id, rides + 1, RIDES_PER_VISITOR);
-        Ci++;
         Message my_req = {MSG_REQUEST, id, Ci, 1};
         enqueue(&pq, &my_req);
         
@@ -292,15 +277,14 @@ void visitor_process(int id) {
             usleep(10000); // Čekaj odgovore
         }
         
-        // --- U KRITIČNOM ODSJEČKU ---
+        // K.O.
         printf("Posjetitelj %d: Ušao u K.O.\n", id);
         
         // Pseudokod: pošalji vrtuljku poruku "Želim se voziti"
         Message ride_req = {MSG_RIDE, id, Ci, 1};
         send_message(id, CAROUSEL_ID, &ride_req); 
         
-        // --- ODMAH IZLAZIMO IZ K.O. ---
-        // (POPRAVAK: Rješavanje logičkog deadlocka)
+        // Izlaz iz K.O.
         
         printf("Posjetitelj %d: Izlazim iz K.O. (poslao zahtjev)\n", id);
         
@@ -320,8 +304,6 @@ void visitor_process(int id) {
             }
         }
         
-        // --- KRAJ KRITIČNOG ODSJEČKA ---
-        
         // Pseudokod: po primitku poruke "Sjedi" sjedni... i čekaj
         printf("Posjetitelj %d: Čekam da sjednem...\n", id);
         while (taken == 0) usleep(10000);
@@ -338,17 +320,15 @@ void visitor_process(int id) {
     Message done_msg = {MSG_DONE, id, Ci, 0};
     send_message(id, CAROUSEL_ID, &done_msg); 
 
-    // POPRAVAK: Rješavanje shutdown deadlocka
     // Ostani živ da tvoja dretva može odgovarati na R-A zahtjeve
     while(1) {
         pause(); // Čekaj signal (ubit će te 'main' proces)
     }
-    
-    // Ovaj kod se tehnički nikad ne izvrši, ali je dobra praksa
+
     exit(0); 
 }
 
-// --- Proces Vrtuljak ---
+
 // Ova funkcija implementira pseudokod "Dretva vrtuljak()"
 void carousel_process() {
     printf("Vrtuljak: Pokrećem se s %d sjedala.\n", CAROUSEL_SEATS);
@@ -365,7 +345,6 @@ void carousel_process() {
         }
     }
     
-    // POPRAVAK: Ispravan red za rješavanje "pohlepnog" buga
     int waiting_visitors_queue[NUM_VISITORS]; 
     int queue_head = 0; // Indeks prvog koji čeka
     int queue_tail = 0; // Indeks gdje dolazi idući
@@ -376,7 +355,7 @@ void carousel_process() {
     // Pseudokod: dok ima posjetitelja
     while(finished_visitors < NUM_VISITORS) {
         
-        // --- FAZA 1: Skupljanje poruka (dok vrtuljak stoji) ---
+        // Skupljanje poruka (dok vrtuljak stoji)
         Message msg;
         for (int i = 0; i < NUM_VISITORS; i++) {
             if (read_fds[i] != -1) {
@@ -399,19 +378,14 @@ void carousel_process() {
             }
         }
         
-        // --- FAZA 2: Odluka o pokretanju vožnje ---
+        // Odluka o pokretanju vožnje
         int active_visitors_left = NUM_VISITORS - finished_visitors;
         int num_to_board = 0;
 
         if (waiting_count >= CAROUSEL_SEATS) {
-            // Slučaj 1: Imamo punu turu (>= 4)
             num_to_board = CAROUSEL_SEATS;
             printf("Vrtuljak: Imam %d u redu (puno), ukrcavam prvih %d.\n", waiting_count, num_to_board);
         
-        } else if (waiting_count > 0 && (waiting_count + finished_visitors) == NUM_VISITORS) {
-            // Slučaj 2: Zadnja tura (manje od 4)
-            num_to_board = waiting_count;
-            printf("Vrtuljak: Imam zadnjih %d putnika, pokrećem ukrcaj.\n", num_to_board);
         }
 
         // Ako imamo koga ukrcati...
@@ -431,7 +405,6 @@ void carousel_process() {
                 send_message(CAROUSEL_ID, visitor_id, &seat_msg);
             }
             
-            // --- FAZA 3: Vožnja (BLOKIRAJUĆA) ---
             // Pseudokod: pokreni vrtuljak... spavaj X... zaustavi vrtuljak
             printf("Vrtuljak: Pokrenuo vrtuljak.\n");
             usleep((rand() % 2000 + 1000) * 1000); // 1-3 sekunde
@@ -455,8 +428,6 @@ void carousel_process() {
     exit(0);
 }
 
-
-// --- Main funkcija (Stvaranje procesa) ---
 int main() {
     printf("Pokrećem simulaciju vrtuljka...\n");
     create_all_pipes();
@@ -482,7 +453,6 @@ int main() {
     // 3. Roditelj (main) radi kontrolirano gašenje
     if (pids[0] > 0) {
         
-        // POPRAVAK: Rješavanje shutdown deadlocka
         // Čekaj SAMO da vrtuljak (pids[0]) završi
         printf("Main: Čekam da Vrtuljak završi...\n");
         waitpid(pids[0], NULL, 0); 
