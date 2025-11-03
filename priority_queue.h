@@ -9,7 +9,7 @@ typedef struct {
     int type;
     int sender_id;
     int Tm;
-    int wants_ride;
+    int wants_ride; // Iako se ne koristi u R-A, ostavljamo ga radi kompatibilnosti
 } Message;
 
 typedef struct {
@@ -26,7 +26,7 @@ int enqueue(PriorityQueue *pq, Message *new_msg);
 int dequeue(PriorityQueue *pq, Message *result);
 int peek(PriorityQueue *pq, Message *result);
 int removeAt(PriorityQueue *pq, int index, Message *result);
-int findByProcessNum(PriorityQueue *pq, int process_num/*, Message *result*/);
+int findByProcessNum(PriorityQueue *pq, int process_num);
 void printQueue(PriorityQueue *pq);
 
 #endif
